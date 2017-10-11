@@ -17,7 +17,9 @@
 package com.google.firebase;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
 
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.MockGoogleCredentials;
@@ -28,6 +30,7 @@ import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import org.junit.After;
 import org.junit.Before;
@@ -232,6 +235,48 @@ public class ThreadManagerTest {
     assertEquals(Event.TYPE_RELEASE_EXECUTOR, event.type);
     assertSame(app, event.app);
     assertSame(executor, event.executor);
+  }
+
+  @Test
+  public void testExecutorService() {
+    MockThreadManager threadManager = new MockThreadManager(executor);
+
+    // Initializing an app should initialize the executor.
+    FirebaseApp app = FirebaseApp.initializeApp(buildOptions(threadManager));
+    assertNotNull(app.getExecutorService());
+
+    assertEquals(1, threadManager.events.size());
+    Event event = threadManager.events.get(0);
+    assertEquals(Event.TYPE_GET_EXECUTOR, event.type);
+  }
+
+  @Test
+  public void testScheduledExecutorService() {
+    MockThreadManager threadManager = new MockThreadManager(
+        Executors.newSingleThreadScheduledExecutor());
+
+    // Initializing an app should initialize the executor.
+    FirebaseApp app = FirebaseApp.initializeApp(buildOptions(threadManager));
+    ExecutorService executorService = app.getExecutorService();
+    assertNotNull(executorService);
+    assertTrue(executorService instanceof ScheduledExecutorService);
+
+    assertEquals(1, threadManager.events.size());
+    Event event = threadManager.events.get(0);
+    assertEquals(Event.TYPE_GET_EXECUTOR, event.type);
+  }
+
+  @Test
+  public void testThreadFactory() {
+    MockThreadManager threadManager = new MockThreadManager(executor);
+
+    // Initializing an app should initialize the executor.
+    FirebaseApp app = FirebaseApp.initializeApp(buildOptions(threadManager));
+    assertNotNull(app.getThreadFactory());
+
+    assertEquals(2, threadManager.events.size());
+    Event event = threadManager.events.get(1);
+    assertEquals(Event.TYPE_GET_THREAD_FACTORY, event.type);
   }
 
   private FirebaseOptions buildOptions(ThreadManager threadManager) {

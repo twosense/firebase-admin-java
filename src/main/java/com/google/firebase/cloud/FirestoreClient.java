@@ -5,11 +5,18 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.google.cloud.firestore.Firestore;
 import com.google.cloud.firestore.FirestoreOptions;
+import com.google.cloud.grpc.GrpcTransportOptions;
+import com.google.cloud.grpc.GrpcTransportOptions.ExecutorFactory;
 import com.google.common.base.Strings;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.ImplFirebaseTrampolines;
 import com.google.firebase.internal.FirebaseService;
+import com.google.firebase.internal.GaeThreadFactory;
 import com.google.firebase.internal.NonNull;
+import com.google.firebase.internal.RevivingScheduledExecutor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadFactory;
 
 /**
  * FirestoreClient provides access to Google Cloud Firestore. Use this API to obtain a
@@ -37,6 +44,8 @@ public class FirestoreClient {
     this.firestore = FirestoreOptions.newBuilder()
         .setCredentials(ImplFirebaseTrampolines.getCredentials(app))
         .setProjectId(projectId)
+        .setTransportOptions(GrpcTransportOptions.newBuilder()
+            .setExecutorFactory(new FirebaseExecutorFactory(app)).build())
         .build()
         .getService();
   }
@@ -69,6 +78,41 @@ public class FirestoreClient {
       service = ImplFirebaseTrampolines.addService(app, new FirestoreClientService(app));
     }
     return service.getInstance();
+  }
+
+  private static class FirebaseExecutorFactory
+      implements ExecutorFactory<ScheduledExecutorService> {
+
+    private final FirebaseApp app;
+    private boolean initialized;
+
+    FirebaseExecutorFactory(FirebaseApp app) {
+      this.app = checkNotNull(app, "app must not be null");
+    }
+
+    @Override
+    public ScheduledExecutorService get() {
+      ExecutorService executor = ImplFirebaseTrampolines.getExecutorService(app);
+      if (executor instanceof ScheduledExecutorService) {
+        // If the App has been initialized with a scheduled executor, simply reuse it. This enables
+        // the developers to specify a single thread pool that will be used by both Firestore and
+        // rest of the admin SDK.
+        return (ScheduledExecutorService) executor;
+      } else {
+        // Otherwise, initialize a new scheduled executor using the specified ThreadFactory.
+        ThreadFactory threadFactory = ImplFirebaseTrampolines.getThreadFactory(app);
+        initialized = true;
+        return new RevivingScheduledExecutor(threadFactory,
+            "firebase-firestore-worker", GaeThreadFactory.isAvailable());
+      }
+    }
+
+    @Override
+    public void release(ScheduledExecutorService executor) {
+      if (initialized) {
+        executor.shutdownNow();
+      }
+    }
   }
 
   private static final String SERVICE_ID = FirestoreClient.class.getName();

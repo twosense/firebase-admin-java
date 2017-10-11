@@ -26,8 +26,10 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.ThreadFactory;
 
+import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -99,7 +101,13 @@ public class FirebaseThreadManagers {
           .setDaemon(true)
           .setThreadFactory(getThreadFactory())
           .build();
-      return Executors.newCachedThreadPool(threadFactory);
+      int cores = Runtime.getRuntime().availableProcessors();
+      logger.debug("Initializing default executor with {} threads", cores);
+      ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(cores, threadFactory);
+      executor.setKeepAliveTime(60, TimeUnit.SECONDS);
+      executor.setRemoveOnCancelPolicy(true);
+      executor.allowCoreThreadTimeOut(true);
+      return executor;
     }
 
     @Override
